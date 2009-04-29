@@ -71,12 +71,51 @@ class Row < Spreadsheet::Row
     end
     DateTime.new(date.year, date.month, date.day, hour, min, sec)
   end
+  
+  def _time data, microseconds # :nodoc:
+    return data if data.is_a?(Time)
+    date = _date data
+    hour = (data % 1) * 24
+    min  = (hour % 1) * 60
+    sec  = ((min  % 1) * 60)
+    if microseconds
+      usec = ((sec - sec.floor) * 100.0).round
+      sec = sec.floor
+    else
+      usec = 0
+      sec = sec.round
+    end
+    min = min.floor
+    hour = hour.floor
+    if sec > 59
+      sec = 0
+      min += 1
+    end
+    if min > 59
+      hour += 1
+    end
+    if hour > 23
+      date += 1
+    end
+    year = date.year
+    if year < 1903
+      year = 1903
+    end
+    begin
+      Time.local(year, date.month, date.day, hour, min, sec, usec)
+    rescue ArgumentError => e
+      raise ArgumentError, "#{e.message}. Could not create Time from: #{year}, #{date.month}, #{date.day}, #{hour}, #{min}, #{sec}, #{usec}"
+    end
+  end
+  
   def enriched_data idx, data # :nodoc:
     res = nil
     if link = @worksheet.links[[@idx, idx]]
       res = link
     elsif data.is_a?(Numeric) && fmt = format(idx)
-      res = if fmt.datetime? || fmt.time?
+      res = if fmt.time?
+              _time data, fmt.number_format[/\.0+$/]
+            elsif fmt.datetime?
               _datetime data
             elsif fmt.date?
               _date data

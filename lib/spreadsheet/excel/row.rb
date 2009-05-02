@@ -6,6 +6,7 @@ module Spreadsheet
 ##
 # Excel-specific Row methods
 class Row < Spreadsheet::Row
+  WINDOWS =  RUBY_PLATFORM["mswin"]
   ##
   # The Excel date calculation erroneously assumes that 1900 is a leap-year. All
   # Dates after 28.2.1900 are off by one.
@@ -46,7 +47,7 @@ class Row < Spreadsheet::Row
   def _date data # :nodoc:
     return data if data.is_a?(Date)
     date = @worksheet.date_base + data.to_i
-    if date > LEAP_ERROR
+    if @worksheet.datemode == 0 &&  date > LEAP_ERROR
       date -= 1
     end
     date
@@ -98,10 +99,9 @@ class Row < Spreadsheet::Row
       date += 1
     end
     year = date.year
-    if year < 1970 && RUBY_PLATFORM["mswin"]
+    if WINDOWS && year < 1970
       year = 1970
-    end
-    if year < 1903
+    elsif year < 1903
       year = 1903
     end
     begin

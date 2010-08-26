@@ -1,3 +1,12 @@
+=== 0.6.4.2 / 2009-08-26
+
+* 1 Bugfix
+
+  * Fixes the issue reported by Qiong Peng and tracked down by Moo Yu and 
+    Matthias Huber (independently) in
+    http://rubyforge.org/tracker/index.php?func=detail&aid=28007&group_id=678&atid=2677
+    where skip amount would not be properly applied in incomplete shared strings
+
 === 0.6.4.1 / 2009-09-17
 
 * 3 Bugfixes

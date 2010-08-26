@@ -39,11 +39,15 @@ module Biff8
     owing = @incomplete_sst.continued_chars
     size = [work.size, owing * (1 + wide) + 1].min
     chars = (size - 1) / (1 + wide)
+    skip = size
     @incomplete_sst.continue oppos + OPCODE_SIZE, size, chars
     unless @incomplete_sst.continued?
+      @workbook.add_shared_string @incomplete_sst
+      skip += @incomplete_skip
       @incomplete_sst = nil
+      @incomplete_skip = nil
     end
-    size
+    skip
   end
   ##
   # Read more data into the Shared String Table. (see also: #read_sst)
@@ -58,7 +62,7 @@ module Biff8
   end
   def postread_workbook # :nodoc:
     super
-    @incomplete_string, @sst_size, @sst_offset, @incomplete_sst = nil
+    @incomplete_string, @sst_size, @sst_offset, @incomplete_sst = nil, @incomplete_skip = nil
   end
   ##
   # Store the offset of extsst, so we can write a new extsst when the
@@ -175,9 +179,12 @@ module Biff8
       sst.wide = wide > 0
       if sst.continued?
         @incomplete_sst = sst
+        @incomplete_skip = skip
+        pos += sst.available
+      else
+        @workbook.add_shared_string sst
+        pos += sst.available + skip
       end
-      @workbook.add_shared_string sst
-      pos += sst.available + skip
     end
   end
 end

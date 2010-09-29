@@ -180,11 +180,11 @@ module Biff8
       if sst.continued?
         @incomplete_sst = sst
         @incomplete_skip = skip
-        pos += sst.available
-      else
-        @workbook.add_shared_string sst
-        pos += sst.available + skip
+        skip = 0
       end
+
+      @workbook.add_shared_string sst
+      pos += sst.available + skip
     end
   end
 end

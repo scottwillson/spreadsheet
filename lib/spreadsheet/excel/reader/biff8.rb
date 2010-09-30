@@ -56,6 +56,9 @@ module Biff8
     pos = 0
     if @incomplete_sst
       pos = continue_string_header work, oppos
+    elsif !@incomplete_skip.nil?
+      pos =  @incomplete_skip
+      @incomplete_skip = nil
     end
     @sst_offset[1] += len
     _read_sst work, oppos, pos
@@ -184,6 +187,9 @@ module Biff8
       else
         @workbook.add_shared_string sst
         pos += sst.available + skip
+        if pos > worksize
+          @incomplete_skip = pos - worksize
+        end
       end
     end
   end

@@ -10,7 +10,7 @@ Gem::Specification.new do |s|
   s.description = %q{Library to read and write MS Excel Spreadsheets}
   s.summary = %q{Read and Write Excel Spreadsheets}
   s.email = %q{hannes.wyss@gmail.com}
-  s.files = Dir.glob("bin/*") + Dir.glob("lib/**/*") + %w(MIT-LICENSE README.txt)
+  s.files = Dir.glob("bin/*") + Dir.glob("lib/**/*") + %w(LICENSE.txt README.txt)
   s.homepage = %q{http://github.com/scottwillson/spreadsheet/tree/master}
   s.rdoc_options = ["--charset=UTF-8"]
   s.require_paths = ["lib"]

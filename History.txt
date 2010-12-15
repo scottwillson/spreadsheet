@@ -1,11 +1,14 @@
-=== 0.6.4.2 / 2009-08-26
+=== 0.6.5 / 07.12.2010
 
-* 1 Bugfix
+* 2 Enhancements courtesy to ISS AG.
 
-  * Fixes the issue reported by Qiong Peng and tracked down by Moo Yu and 
-    Matthias Huber (independently) in
-    http://rubyforge.org/tracker/index.php?func=detail&aid=28007&group_id=678&atid=2677
-    where skip amount would not be properly applied in incomplete shared strings
+  * Outlining (Grouping) of lines and columns is now possible. The outlining 
+    maximum is 8. This means you can do 8 subgroups in a group.
+
+  * Hiding and Unhiding of lines and columns is now possible. 
+
+  * Both of above two points is now possible by creating a new Excel File from 
+    scratch or editing an existing XLS and adding groups or hiding lines to it.
 
 === 0.6.4.1 / 2009-09-17
 

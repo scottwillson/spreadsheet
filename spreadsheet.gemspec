@@ -1,21 +1,22 @@
-# encoding: utf-8
+require "rubygems"
+require "rake"
 
-Gem::Specification.new do |s|
-  s.name = %q{spreadsheet}
-  s.version = "0.6.4.1"
-  s.date = %q{2010-11-16}
+spec = Gem::Specification.new do |s|
+   s.name        = "spreadsheet"
+   s.version     = "0.6.5"
+   s.summary     = "The Spreadsheet Library is designed to read and write Spreadsheet Documents"
+   s.description = "As of version 0.6.0, only Microsoft Excel compatible spreadsheets are supported"
+   s.author      = "Masaomi Hatakeyama, Zeno R.R. Davatz"
+   s.email       = "mhatakeyama@ywesee.com, zdavatz@ywesee.com"
+   s.platform    = Gem::Platform::RUBY
+   s.files       = Dir.glob("{bin,lib,test}/**/*") + Dir.glob("*.txt")
+   s.test_file   = "test/suite.rb"
+   s.executables << 'xlsopcodes'
+   s.add_dependency('ruby-ole')
+   s.homepage	 = "http://scm.ywesee.com/?p=spreadsheet/.git;a=summary"
+end
 
-  s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
-  s.authors = ["Hannes Wyss"]
-  s.description = %q{Library to read and write MS Excel Spreadsheets}
-  s.summary = %q{Read and Write Excel Spreadsheets}
-  s.email = %q{hannes.wyss@gmail.com}
-  s.files = Dir.glob("bin/*") + Dir.glob("lib/**/*") + %w(LICENSE.txt README.txt)
-  s.homepage = %q{http://github.com/scottwillson/spreadsheet/tree/master}
-  s.rdoc_options = ["--charset=UTF-8"]
-  s.require_paths = ["lib"]
-  s.rubygems_version = %q{1.3.6}
-
-  s.add_dependency(%q<ruby-ole>, [">= 1.2.11.1"])
-
+if $0 == __FILE__
+   Gem.manage_gems
+   Gem::Builder.new(spec).build
 end

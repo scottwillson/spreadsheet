@@ -1,14 +1,13 @@
-Last Update: 17.09.2009, 16.32 - hwyss
+Last Update: 08.12.2010 - Zeno Davatz
 
 
 = Spreadsheet
 
 http://spreadsheet.rubyforge.org
-http://scm.ywesee.com/spreadsheet
 
 For a viewable directory of all recent changes, please see:
 
-http://scm.ywesee.com/?p=spreadsheet;a=summary
+http://scm.ywesee.com/?p=spreadsheet/.git;a=summary
 
 For Non-GPLv3 commercial licencing, please see:
 
@@ -26,6 +25,7 @@ Hannes Wyss. Spreadsheet can read, write and modify Spreadsheet Documents.
 
 == What's new?
 
+* Supported outline (grouping) functions
 * Significantly improved memory-efficiency when reading large Excel Files
 * Limited Spreadsheet modification support
 * Improved handling of String Encodings
@@ -45,7 +45,6 @@ Hannes Wyss. Spreadsheet can read, write and modify Spreadsheet Documents.
 == Dependencies
 
 * ruby 1.8
-* Iconv
 * ruby-ole[http://code.google.com/p/ruby-ole/]
 
 
@@ -63,6 +62,13 @@ Using RubyGems[http://www.rubygems.org]:
 If you don't like RubyGems[http://www.rubygems.org], let me know which
 installation solution you prefer and I'll include it in the future.
 
+If you can use 'rake' and 'hoe' library is also installed, you can 
+build a gem package as follows:
+
+* rake gem 
+
+The gem package is built in pkg directory.
+
 
 == Authors
 
@@ -75,7 +81,7 @@ ParseExcel:
 Copyright (c) 2003 by Hannes Wyss (hannes.wyss@gmail.com)
 
 New Code:
-Copyright (c) 2008 by Hannes Wyss (hannes.wyss@gmail.com)
+Copyright (c) 2010 ywesee GmbH (mhatakeyama@ywesee.com, zdavatz@ywesee.com)
 
 
 == License

@@ -43,9 +43,9 @@ class Worksheet
     def to_s(target_encoding=nil)
       if(target_encoding)
         begin
-          Iconv.new(target_encoding, @encoding).iconv(@value)
+          @value.encode(target_encoding, @encoding)
         rescue
-          Iconv.new(target_encoding, 'ascii').iconv(@value.to_s)
+          @value.encode(target_encoding, 'ascii')
         end
       else
         @value.to_s

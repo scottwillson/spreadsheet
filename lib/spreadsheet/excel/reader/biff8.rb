@@ -28,6 +28,18 @@ module Biff8
     end
     size + 1
   end
+  # When a String is too long for one Opcode, it is continued in a Continue
+  # Opcode. Excel may reconsider compressing the remainder of the string.
+  # This method appends the available remainder (decompressed if necessary) to
+  # the incomplete string.
+  def unpack_string work
+    opts, _ = work.unpack 'C'
+    wide = opts & 1
+    string = work[1, -1]
+    if wide == 0
+      string = wide string
+    end
+  end
   ##
   # When a String is too long for one Opcode, it is continued in a Continue
   # Opcode. Excel may reconsider compressing the remainder of the string.
@@ -81,7 +93,7 @@ module Biff8
     #      0     4  Total number of strings in the workbook (see below)
     #      4     4  Number of following strings (nm)
     #      8  var.  List of nm Unicode strings, 16-bit string length (➜ 3.4)
-    total, @sst_size = work.unpack 'V2'
+    _, @sst_size = work.unpack 'V2'
     @sst_offset = [pos, len]
     @workbook.offsets.store :sst, @sst_offset
     _read_sst work, pos, 8
@@ -113,9 +125,8 @@ module Biff8
     #                   List of rt formatting runs (➜ 3.2)
     #   [var.]      sz  (optional, only if phonetic=1)
     #                   Asian Phonetic Settings Block (➜ 3.4.2)
-    chars, offset, wide, phonetic, richtext, available, owing, skip \
-      = read_string_header work, count_length
-    string, data = read_string_body work, offset, available, wide > 0
+    chars, offset, wide, _, _, available, owing, _ = read_string_header work, count_length
+    string, _ = read_string_body work, offset, available, wide > 0
     if owing > 0
       @incomplete_string = [string, chars]
     end
@@ -126,8 +137,8 @@ module Biff8
   # the available data (unchanged).
   def read_string_body work, offset, available, wide
     data = work[offset, available]
-    string = wide ? data : wide(data)
-    [string, data]
+    widened_data = wide ? data : wide(data)
+    [widened_data, data]
   end
   ##
   # Read the header of a string. Returns the following information in an Array:
@@ -160,6 +171,27 @@ module Biff8
     have_chrs = (avbl - flagsize) / (1 + wide)
     owing     = chars - have_chrs
     [chars, flagsize, wide, phonetic, richtext, avbl, owing, skip]
+  end
+
+  def read_range_address_list work, len
+    # Cell range address, BIFF8:
+    # Offset  Size  Contents
+    # 0       2     Index to first row
+    # 2       2     Index to last row
+    # 4       2     Index to first column
+    # 6       2     Index to last column
+    # ! In several cases, BIFF8 still writes the BIFF2-BIFF5 format of a cell range address
+    # (using 8-bit values for the column indexes). This will be mentioned at the respective place.
+    #
+    offset = 0, results = []
+    return results if len < 2
+    count = work[0..1].unpack('v').first
+    offset = 2
+    count.times do |i|
+      results << work[offset...offset+8].unpack('v4')
+      offset += 8
+    end
+    results
   end
   ##
   # Insert null-characters into a compressed UTF-16 string

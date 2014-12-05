@@ -34,10 +34,10 @@ module Internals
     866 => "IBM866", #(Cyrillic (Russian))
     869 => "IBM869", #(Greek (Modern))
     874 => "WINDOWS-874", #(Thai)
-    932 => "WINDOWS-932", #(Japanese Shift-JIS)
-    936 => "WINDOWS-936", #(Chinese Simplified GBK)
-    949 => "WINDOWS-949", #(Korean (Wansung))
-    950 => "WINDOWS-950", #(Chinese Traditional BIG5)
+    932 => "Windows-31J", #(Japanese Shift-JIS)
+    936 => "GBK", #(Chinese Simplified GBK)
+    949 => "CP949", #(Korean (Wansung))
+    950 => "CP950", #(Chinese Traditional BIG5)
     1200 => "UTF-16LE", #(BIFF8)
     1250 => "WINDOWS-1250", #(Latin II) (Central European)
     1251 => "WINDOWS-1251", #(Cyrillic)
@@ -49,11 +49,13 @@ module Internals
     1257 => "WINDOWS-1257", #(Baltic)
     1258 => "WINDOWS-1258", #(Vietnamese)
     1361 => "WINDOWS-1361", #(Korean (Johab))
-    10000 => "MACINTOSH",
-    32768 => "MACINTOSH",
+    10000 => "MACROMAN",
+    32768 => "MACROMAN",
     32769 => "WINDOWS-1252", #(Latin I) (BIFF2-BIFF3)
   }
   SEGAPEDOC = CODEPAGES.invert
+  # color_codes according to http://support.softartisans.com/kbview_1205.aspx
+  # synonyms are in comments when reverse lookup
   COLOR_CODES = {
     0x0000 => :builtin_black,
     0x0001 => :builtin_white,
@@ -63,21 +65,63 @@ module Internals
     0x0005 => :builtin_yellow,
     0x0006 => :builtin_magenta,
     0x0007 => :builtin_cyan,
-    0x0008 => :black,
-    0x0009 => :white,
-    0x000a => :red,
-    0x000b => :lime,
-    0x000c => :blue,
-    0x000d => :yellow,
-    0x000e => :magenta,
-    0x000f => :cyan,
-    0x0010 => :brown,
-    0x0011 => :green,
-    0x0012 => :navy,
-    0x0016 => :silver,
-    0x0017 => :gray,
-    0x001d => :orange,
-    0x0024 => :purple,
+    0x0008 => :black,                 #xls_color_0
+    0x0009 => :white,                 #xls_color_1
+    0x000a => :red,                   #xls_color_2
+    0x000b => :lime,                  #xls_color_3
+    0x000c => :blue,                  #xls_color_4
+    0x000d => :yellow,                #xls_color_5
+    0x000e => :magenta,               #xls_color_6, fuchsia
+    0x000f => :cyan,                  #xls_color_7, aqua
+    0x0010 => :brown,                 #xls_color_8
+    0x0011 => :green,                 #xls_color_9
+    0x0012 => :navy,                  #xls_color_10
+    0x0013 => :xls_color_11,
+    0x0014 => :xls_color_12,
+    0x0015 => :xls_color_13,
+    0x0016 => :silver,                #xls_color_14
+    0x0017 => :gray,                  #xls_color_15, grey
+    0x0018 => :xls_color_16,
+    0x0019 => :xls_color_17,
+    0x001a => :xls_color_18,
+    0x001b => :xls_color_19,
+    0x001c => :xls_color_20,
+    0x001d => :xls_color_21,
+    0x001e => :xls_color_22,
+    0x001f => :xls_color_23,
+    0x0020 => :xls_color_24,
+    0x0021 => :xls_color_25,
+    0x0022 => :xls_color_26,
+    0x0023 => :xls_color_27,
+    0x0024 => :purple,                #xls_color_28
+    0x0025 => :xls_color_29,
+    0x0026 => :xls_color_30,
+    0x0027 => :xls_color_31,
+    0x0028 => :xls_color_32,
+    0x0029 => :xls_color_33,
+    0x002a => :xls_color_34,
+    0x002b => :xls_color_35,
+    0x002c => :xls_color_36,
+    0x002d => :xls_color_37,
+    0x002e => :xls_color_38,
+    0x002f => :xls_color_39,
+    0x0030 => :xls_color_40,
+    0x0031 => :xls_color_41,
+    0x0032 => :xls_color_42,
+    0x0033 => :xls_color_43,
+    0x0034 => :orange,                #xls_color_44
+    0x0035 => :xls_color_45,
+    0x0036 => :xls_color_46,
+    0x0037 => :xls_color_47,
+    0x0038 => :xls_color_48,
+    0x0039 => :xls_color_49,
+    0x003a => :xls_color_50,
+    0x003b => :xls_color_51,
+    0x003c => :xls_color_52,
+    0x003d => :xls_color_53,
+    0x003e => :xls_color_54,
+    0x003f => :xls_color_55,
+
     0x0040 => :border,
     0x0041 => :pattern_bg,
     0x0043 => :dialog_bg,
@@ -86,11 +130,30 @@ module Internals
     0x004f => :chart_border,
     0x0050 => :tooltip_bg,
     0x0051 => :tooltip_text,
-    0x7fff => :text,
+    0x7fff => :text
   }
-  SEDOC_ROLOC = COLOR_CODES.invert.update( :aqua    => 0x000f,
-                                           :fuchsia => 0x000e,
-                                           :grey    => 0x0017 )
+
+  SEDOC_ROLOC = COLOR_CODES.invert.update(
+    :xls_color_0  => 0x0008,
+    :xls_color_1  => 0x0009,
+    :xls_color_2  => 0x000a,
+    :xls_color_3  => 0x000b,
+    :xls_color_4  => 0x000c,
+    :xls_color_5  => 0x000d,
+    :xls_color_6  => 0x000e,
+    :fuchsia      => 0x000e,
+    :xls_color_7  => 0x000f,
+    :aqua         => 0x000f,
+    :xls_color_8  => 0x0010,
+    :xls_color_9  => 0x0011,
+    :xls_color_10 => 0x0012,
+    :xls_color_14 => 0x0016,
+    :xls_color_15 => 0x0017,
+    :grey         => 0x0017,
+    :xls_color_28 => 0x0024,
+    :xls_color_44 => 0x0034
+  )
+
   BINARY_FORMATS = {
     :blank      => 'v3',
     :boolerr    => 'v3C2',
@@ -99,6 +162,7 @@ module Internals
     :labelsst   => 'v3V',
     :number     => "v3#{EIGHT_BYTE_DOUBLE}",
     :pagesetup  => "v8#{EIGHT_BYTE_DOUBLE}2v",
+    :margin     => "#{EIGHT_BYTE_DOUBLE}",
     :rk         => 'v3V',
     :row        => 'v4x4V',
     :window2    => 'v4x2v2x4',
@@ -198,6 +262,12 @@ module Internals
     :bold   => 700,
     :normal => 400,
   }
+  WORKSHEET_VISIBILITIES = {
+    0x00 => :visible,
+    0x01 => :hidden,
+    0x02 => :strong_hidden
+  }
+  SEITILIBISIV_TEEHSKROW = WORKSHEET_VISIBILITIES.invert
   LEAP_ERROR = Date.new 1900, 2, 28
   OPCODES = {
     :blank        => 0x0201, #    BLANK ➜ 6.7
@@ -216,6 +286,7 @@ module Internals
     :hlink        => 0x01b8, #    HLINK ➜ 6.52 (BIFF8 only)
     :label        => 0x0204, #    LABEL ➜ 6.59 (BIFF2-BIFF7)
     :labelsst     => 0x00fd, #    LABELSST ➜ 6.61 (BIFF8 only)
+    :mergedcells  => 0x00e5, # ○○ MERGEDCELLS	➜ 5.67 (BIFF8 only)
     :mulblank     => 0x00be, #    MULBLANK ➜ 6.64 (BIFF5-BIFF8)
     :mulrk        => 0x00bd, #    MULRK ➜ 6.65 (BIFF5-BIFF8)
     :number       => 0x0203, #    NUMBER ➜ 6.68
@@ -309,6 +380,10 @@ module Internals
     :wsbool       => 0x0081, # ○  WSBOOL ➜ 6.113
     :defcolwidth  => 0x0055, # ○  DEFCOLWIDTH ➜ 6.29
     :sort         => 0x0090, # ○  SORT ➜ 6.95
+    :note         => 0x001c,
+    :obj          => 0x005d,
+    :drawing      => 0x00EC,
+    :txo          => 0x01B6,
   }
 =begin ## unknown opcodes
 0x00bf, 0x00c0, 0x00c1, 0x00e1, 0x00e2, 0x00eb, 0x01af, 0x01bc
@@ -347,6 +422,28 @@ module Internals
     :distributed => 4,
   }
   NGILA_V_FX = XF_V_ALIGN.invert
+# border line styles taken from http://www.openoffice.org/sc/excelfileformat.pdf
+	XF_BORDER_LINE_STYLES = {
+		0x00	=>	:none,
+		0x01	=>	:thin,
+		0x02	=>	:medium,
+		0x03	=>	:dashed,
+		0x04	=>	:dotted,
+		0x05	=>	:thick,
+		0x06	=>	:double,
+		0x07	=>	:hair,
+# the following are only valid for BIFF8 and higher:
+		0x08	=>	:medium_dashed,
+		0x09	=>	:thin_dash_dotted,
+		0x0a	=>	:medium_dash_dotted,
+		0x0b	=>	:thin_dash_dot_dotted,
+		0x0c	=>	:medium_dash_dot_dotted,
+		0x0d	=>	:slanted_medium_dash_dotted
+	}
+# ensure reader always gets a valid line style
+	XF_BORDER_LINE_STYLES.default = :none
+	SELYTS_ENIL_REDROB_FX = XF_BORDER_LINE_STYLES.invert
+	SELYTS_ENIL_REDROB_FX.default = 0x00
   OPCODE_SIZE = 4
   ROW_HEIGHT = 12.1
   SST_CHUNKSIZE = 20

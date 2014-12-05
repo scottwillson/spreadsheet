@@ -2,6 +2,7 @@ require 'stringio'
 require 'spreadsheet/excel/writer/biff8'
 require 'spreadsheet/excel/internals'
 require 'spreadsheet/excel/internals/biff8'
+require 'bigdecimal'
 
 module Spreadsheet
   module Excel
@@ -63,7 +64,7 @@ class Worksheet
     cent = 0
     int = 2
     higher = value * 100
-    if higher.is_a?(Float) && higher < 0xfffffffc
+    if (higher.is_a?(BigDecimal) or higher.is_a?(Float)) && higher < 0xfffffffc
       cent = 1
       if higher == higher.to_i
         value = higher.to_i
@@ -89,7 +90,7 @@ class Worksheet
   def need_number? cell
     if cell.is_a?(Numeric) && cell.abs > 0x1fffffff
       true
-    elsif cell.is_a?(Float)
+    elsif (cell.is_a?(BigDecimal) or cell.is_a?(Float)) and not cell.nan?
       higher = cell * 100
       if higher == higher.to_i
         need_number? higher.to_i
@@ -118,9 +119,11 @@ class Worksheet
     @io.size
   end
   def strings
-    @worksheet.inject [] do |memo, row|
-      strings = row.select do |cell| cell.is_a?(String) && !cell.empty? end
-      memo.concat strings
+    @worksheet.inject(Hash.new(0)) do |memo, row|
+      row.each do |cell|
+        memo[cell] += 1 if (cell.is_a?(String) && !cell.empty?)
+      end
+      memo
     end
   end
   ##
@@ -242,7 +245,7 @@ class Worksheet
   def write_changes reader, endpos, sst_status
 
     ## FIXME this is not smart solution to update outline_level.
-    #        without this process, outlines in row disappear in MS Excel.       
+    #        without this process, outlines in row disappear in MS Excel.
     @worksheet.row_count.times do |i|
       if @worksheet.row(i).outline_level > 0
         @worksheet.row(i).outline_level = @worksheet.row(i).outline_level
@@ -289,7 +292,7 @@ Please contact the author (hannes dot wyss at gmail dot com) with a sample file
 and minimal code that generates this warning. Thanks!
       EOS
     end
-    work = work.sort_by do |key, (pos, len)|
+    work = work.sort_by do |key, (pos, _)|
       [pos, key.is_a?(Integer) ? key : -1]
     end
     work.each do |key, (pos, len)|
@@ -306,9 +309,12 @@ and minimal code that generates this warning. Thanks!
       reader.seek lastpos
     end
 
-    # Necessary for outline (grouping) and hiding functions 
+    # Necessary for outline (grouping) and hiding functions
     # but these below are not necessary to run
     # if [Row|Column]#hidden? = false and [Row|Column]#outline_level == 0
+    write_merged_cells
+    write_pagesetup
+    write_margins
     write_colinfos
     write_guts
 
@@ -471,6 +477,7 @@ and minimal code that generates this warning. Thanks!
     write_wsbool
     # ○  Page Settings Block ➜ 4.4
     # ○  Worksheet Protection Block ➜ 4.18
+    write_proctection
     # ○  DEFCOLWIDTH ➜ 5.32
     write_defcolwidth
     # ○○ COLINFO ➜ 5.18
@@ -488,10 +495,13 @@ and minimal code that generates this warning. Thanks!
     # ○○ SELECTION ➜ 5.93
     # ○  STANDARDWIDTH ➜ 5.101
     # ○○ MERGEDCELLS ➜ 5.67
+    write_merged_cells
     # ○  LABELRANGES ➜ 5.64
     # ○  PHONETIC ➜ 5.77
     # ○  Conditional Formatting Table ➜ 4.12
     # ○  Hyperlink Table ➜ 4.13
+    write_pagesetup
+    write_margins
     write_hyperlink_table
     # ○  Data Validity Table ➜ 4.14
     # ○  SHEETLAYOUT ➜ 5.96 (BIFF8X only)
@@ -594,7 +604,6 @@ and minimal code that generates this warning. Thanks!
   def write_hyperlink_table
     # TODO: theoretically it's possible to write fewer records by combining
     #       identical neighboring links in cell-ranges
-    links = []
     @worksheet.each do |row|
       row.each_with_index do |cell, idx|
         if cell.is_a? Link
@@ -755,14 +764,18 @@ and minimal code that generates this warning. Thanks!
              else
                height * TWIPS
              end
-    # TODO: Row spacing
-    data = [
+
+    attrs = [
       row.idx,
       row.first_used,
       row.first_unused,
       height,
-      opts,
-    ].pack binfmt(:row)
+      opts]
+
+    return if attrs.any?(&:nil?)
+
+    # TODO: Row spacing
+    data = attrs.pack binfmt(:row)
     write_op opcode(:row), data
   end
   def write_rowblock block
@@ -832,11 +845,56 @@ and minimal code that generates this warning. Thanks!
     if @worksheet.selected
       flags |= 0x0200
     end
-    flags |= 0x0080 # Show outline symbols, 
+    flags |= 0x0080 # Show outline symbols,
                     # but if [Row|Column]#outline_level = 0 the symbols are not shown.
     data = [ flags, 0, 0, 0, 0, 0 ].pack binfmt(:window2)
     write_op opcode(:window2), data
   end
+
+  def write_merged_cells
+    return unless @worksheet.merged_cells.any?
+    # FIXME standards say the record is limited by 1027 records at once
+    # And no CONTINUE is supported
+
+    merge_cells = @worksheet.merged_cells.dup
+    while (window = merge_cells.slice!(0...1027)).any?
+      count = window.size
+      data = ([count] + window.flatten).pack('v2v*')
+      write_op opcode(:mergedcells), data
+    end
+  end
+
+  def write_pagesetup
+    return unless @worksheet.pagesetup
+    data = @worksheet.pagesetup[:orig_data].dup
+    if @worksheet.pagesetup[:orientation]
+      data[5] = @worksheet.pagesetup[:orientation] == :landscape ? 0 : 2
+    end
+
+    if @worksheet.pagesetup[:adjust_to]
+      data[1] = @worksheet.pagesetup[:adjust_to]
+    end
+
+    write_op opcode(:pagesetup), data.pack(binfmt(:pagesetup))
+  end
+
+  def write_margins
+    @worksheet.margins.each do |key, value|
+      next unless [:left, :top, :right, :bottom].include?(key)
+      write_op opcode(:"#{key}margin"), [value].pack(binfmt(:margin))
+    end
+  end
+
+  def write_proctection
+    return unless @worksheet.protected?
+    # ○ PROTECT Worksheet contents: 1 = protected (➜ 5.82)
+    write_op opcode(:protect), [1].pack('v')
+    # ○ OBJECTPROTECT Embedded objects: 1 = protected (➜ 5.72)
+    # ○ SCENPROTECT Scenarios: 1 = protected (➜ 5.91)
+    # ○ PASSWORD Hash value of the password; 0 = no password (➜ 5.76)
+    write_op opcode(:password), [@worksheet.password_hash].pack('v')
+  end
+
   def write_wsbool
     bits = [
          #   Bit  Mask    Contents

@@ -48,7 +48,7 @@ module Spreadsheet
         end
       end
     end
-    attr_reader :formats, :default_format
+    attr_reader :formats
     attr_accessor :idx, :height, :worksheet
     boolean :hidden, :collapsed
     enum :outline_level, 0, Integer
@@ -63,6 +63,12 @@ module Spreadsheet
       super cells
       @formats = []
       @height = 12.1
+    end
+    ##
+    # The default Format of this Row, if you have set one.
+    # Returns the Worksheet's default or the Workbook's default Format otherwise.
+    def default_format
+      @default_format || @worksheet.default_format || @workbook.default_format
     end
     ##
     # Set the default Format used when writing a Cell if no explicit Format is
@@ -90,7 +96,7 @@ module Spreadsheet
     # This is primarily a helper-function for the writer classes.
     def formatted
       copy = dup
-      @formats.rcompact!
+      Helpers.rcompact(@formats)
       if copy.length < @formats.size
         copy.concat Array.new(@formats.size - copy.length)
       end
@@ -99,7 +105,7 @@ module Spreadsheet
     ##
     # Same as Row#size, but takes into account formatted empty cells
     def formatted_size
-      @formats.rcompact!
+      Helpers.rcompact(@formats)
       sz = size
       fs = @formats.size
       fs > sz ? fs : sz
@@ -122,6 +128,19 @@ module Spreadsheet
       @worksheet.row_updated @idx, self if @worksheet
       fmt
     end
+
+    def update_format(idx, opts = {})
+      if @formats[idx]
+        @formats[idx].update_format(opts)
+      else
+        fmt = default_format.clone
+        fmt.font = fmt.font.clone
+        @formats[idx] = fmt.update_format(opts)
+      end
+      @worksheet.add_format @formats[idx]
+      @worksheet.row_updated @idx, self if @worksheet
+    end
+
     private
     def index_of_first ary # :nodoc:
       if first = ary.find do |elm| !elm.nil? end

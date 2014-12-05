@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# TestIntegration -- Spreadheet -- 08.10.2007 -- hwyss@ywesee.com
+# TestIntegration -- spreadheet -- 07.09.2011 -- mhatakeyama@ywesee.com
+# TestIntegration -- spreadheet -- 08.10.2007 -- hwyss@ywesee.com
 
 $: << File.expand_path('../lib', File.dirname(__FILE__))
 
@@ -66,6 +67,29 @@ module Spreadsheet
       assert_equal 0, sheet.column_count
       assert_nothing_raised do sheet.inspect end
     end
+    def test_version_excel97__excel2010__utf16
+      Spreadsheet.client_encoding = 'UTF-16LE'
+      assert_equal 'UTF-16LE', Spreadsheet.client_encoding
+      path = File.join @data, 'test_version_excel97_2010.xls'
+      book = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book
+      assert_equal 8, book.biff_version
+      assert_equal @@iconv.iconv('Microsoft Excel 97/2000/XP'),
+                   book.version_string
+      enc = 'UTF-16LE'
+      if defined? Encoding
+        enc = Encoding.find enc
+      end
+      assert_equal enc, book.encoding
+      sheet = book.worksheet 0
+      row = sheet.row 9
+      assert_equal 0.00009, row[0]
+      link = row[1]
+      assert_instance_of Link, link
+      assert_equal @@iconv.iconv('Link-Text'), link
+      assert_equal @@iconv.iconv('http://scm.ywesee.com/spreadsheet'), link.url
+      assert_equal @@iconv.iconv('http://scm.ywesee.com/spreadsheet'), link.href
+    end
     def test_version_excel97__ooffice__utf16
       Spreadsheet.client_encoding = 'UTF-16LE'
       assert_equal 'UTF-16LE', Spreadsheet.client_encoding
@@ -82,33 +106,11 @@ module Spreadsheet
       assert_equal enc, book.encoding
       assert_equal 25, book.formats.size
       assert_equal 5, book.fonts.size
-      str1 = book.shared_string 0
-      other = @@iconv.iconv('Shared String')
-      assert_equal @@iconv.iconv('Shared String'), str1
-      str2 = book.shared_string 1
-      assert_equal @@iconv.iconv('Another Shared String'), str2
-      str3 = book.shared_string 2
-      long = @@iconv.iconv('1234567890 ' * 1000)
-      if str3 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str3[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str3[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str3
-      str4 = book.shared_string 3
-      long = @@iconv.iconv('9876543210 ' * 1000)
-      if str4 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str4[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str4[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str4
+      str1 = @@iconv.iconv('Shared String')
+      str2 = @@iconv.iconv('Another Shared String')
+      str3 = @@iconv.iconv('1234567890 ' * 1000)
+      str4 = @@iconv.iconv('9876543210 ' * 1000)
+      assert_valid_sst(book, :contains => [str1, str2, str3, str4])
       sheet = book.worksheet 0
       assert_equal 11, sheet.row_count
       assert_equal 12, sheet.column_count
@@ -187,32 +189,11 @@ module Spreadsheet
       assert_equal enc, book.encoding
       assert_equal 25, book.formats.size
       assert_equal 5, book.fonts.size
-      str1 = book.shared_string 0
-      assert_equal 'Shared String', str1
-      str2 = book.shared_string 1
-      assert_equal 'Another Shared String', str2
-      str3 = book.shared_string 2
-      long = '1234567890 ' * 1000
-      if str3 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str3[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str3[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str3
-      str4 = book.shared_string 3
-      long = '9876543210 ' * 1000
-      if str4 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str4[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str4[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str4
+      str1 = 'Shared String'
+      str2 = 'Another Shared String'
+      str3 = '1234567890 ' * 1000
+      str4 = '9876543210 ' * 1000
+      assert_valid_sst(book, :contains => [str1, str2, str3, str4])
       sheet = book.worksheet 0
       assert_equal 11, sheet.row_count
       assert_equal 12, sheet.column_count
@@ -521,7 +502,7 @@ module Spreadsheet
       assert_instance_of Excel::Worksheet, sheet
       str = "S\000h\000e\000e\000t\0001\000"
       if RUBY_VERSION >= '1.9'
-        str.force_encoding 'UTF-16LE' if name.respond_to?(:force_encoding)
+        str.force_encoding 'UTF-16LE' if str.respond_to?(:force_encoding)
       end
       assert_equal sheet, book.worksheet(str)
     end
@@ -577,32 +558,12 @@ module Spreadsheet
       assert_equal 8, book.biff_version
       assert_equal 'Microsoft Excel 97/2000/XP', book.version_string
       path = File.join @var, 'test_change_cell.xls'
-      str1 = book.shared_string 0
-      assert_equal 'Shared String', str1
-      str2 = book.shared_string 1
-      assert_equal 'Another Shared String', str2
-      str3 = book.shared_string 2
-      long = '1234567890 ' * 1000
-      if str3 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str3[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str3[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str3
-      str4 = book.shared_string 3
-      long = '9876543210 ' * 1000
-      if str4 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str4[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str4[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str4
+      str1 = 'Shared String'
+      str2 = 'Another Shared String'
+      str3 = '1234567890 ' * 1000
+      str4 = '9876543210 ' * 1000
+      str5 = "Link-Text"
+      assert_valid_sst(book, :is => [str1, str2, str3, str4, str5])
       sheet = book.worksheet 0
       sheet[0,0] = 4
       row = sheet.row 1
@@ -680,44 +641,21 @@ module Spreadsheet
       assert_equal 8, book.biff_version
       assert_equal 'Microsoft Excel 97/2000/XP', book.version_string
       path = File.join @var, 'test_change_cell.xls'
-      str1 = book.shared_string 0
-      assert_equal 'Shared String', str1
-      str2 = book.shared_string 1
-      assert_equal 'Another Shared String', str2
-      str3 = book.shared_string 2
-      long = '1234567890 ' * 1000
-      if str3 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str3[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str3[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str3
-      str4 = book.shared_string 3
-      long = '9876543210 ' * 1000
-      if str4 != long
-        long.size.times do |idx|
-          len = idx.next
-          if str4[0,len] != long[0,len]
-            assert_equal long[idx - 5, 10], str4[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal long, str4
+      str1 = 'Shared String'
+      str2 = 'Another Shared String'
+      str3 = '1234567890 ' * 1000
+      str4 = '9876543210 ' * 1000
+      str5 = 'Link-Text'
+      assert_valid_sst(book, :is => [str1, str2, str3, str4, str5])
       sheet = book.worksheet 0
       sheet[0,0] = 4
-      str5 = 'A completely different String'
-      sheet[0,1] = str5
+      str6 = 'A completely different String'
+      sheet[0,1] = str6
       row = sheet.row 1
       row[0] = 3
       book.write path
       assert_nothing_raised do book = Spreadsheet.open path end
-      assert_equal str5, book.shared_string(0)
-      assert_equal str2, book.shared_string(1)
-      assert_equal str3, book.shared_string(2)
-      assert_equal str4, book.shared_string(3)
+      assert_valid_sst(book, :is => [str2, str3, str4, str5, str6])
       sheet = book.worksheet 0
       assert_equal 11, sheet.row_count
       assert_equal 12, sheet.column_count
@@ -732,9 +670,9 @@ module Spreadsheet
       assert_equal 4, row[0]
       assert_equal 4, sheet[0,0]
       assert_equal 4, sheet.cell(0,0)
-      assert_equal str5, row[1]
-      assert_equal str5, sheet[0,1]
-      assert_equal str5, sheet.cell(0,1)
+      assert_equal str6, row[1]
+      assert_equal str6, sheet[0,1]
+      assert_equal str6, sheet.cell(0,1)
       row = sheet.row 1
       assert_equal 3, row[0]
       assert_equal 3, sheet[1,0]
@@ -868,7 +806,7 @@ module Spreadsheet
       row.height = 40
       row.push 'x'
       row.pop
-      sheet2 = book.create_worksheet :name => 'my name'
+      book.create_worksheet :name => 'my name' #=> sheet2
       book.write path
       Spreadsheet.client_encoding = 'UTF-16LE'
       str1 = @@iconv.iconv str1
@@ -881,31 +819,7 @@ module Spreadsheet
       else
         assert_equal 'UTF-16LE', book.encoding
       end
-      assert_equal str1, book.shared_string(0)
-      assert_equal str2, book.shared_string(1)
-      test = nil
-      assert_nothing_raised "I've probably split a two-byte-character" do
-        test = book.shared_string 2
-      end
-      if test != str3
-        str3.size.times do |idx|
-          len = idx.next
-          if test[0,len] != str3[0,len]
-            assert_equal str3[idx - 5, 10], test[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal str3, test
-      test = book.shared_string 3
-      if test != str4
-        str4.size.times do |idx|
-          len = idx.next
-          if test[0,len] != str4[0,len]
-            assert_equal str4[idx - 5, 10], test[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal str4, test
+      assert_valid_sst(book, :contains => [str1, str2, str3, str4])
       assert_equal 2, book.worksheets.size
       sheet = book.worksheets.first
       assert_instance_of Spreadsheet::Excel::Worksheet, sheet
@@ -1043,7 +957,7 @@ module Spreadsheet
       sheet1.update_row 7, nil, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0
       sheet1.row(8).default_format = fmt
       sheet1[8,0] = @@iconv.iconv 'formatted when empty'
-      sheet2 = book.create_worksheet :name => @@iconv.iconv("my name")
+      book.create_worksheet :name => @@iconv.iconv("my name") #=> sheet2
       book.write path
       Spreadsheet.client_encoding = 'UTF-8'
       str1 = 'Shared String'
@@ -1056,28 +970,7 @@ module Spreadsheet
       else
         assert_equal 'UTF-16LE', book.encoding
       end
-      assert_equal str1, book.shared_string(0)
-      assert_equal str2, book.shared_string(1)
-      test = book.shared_string 2
-      if test != str3
-        str3.size.times do |idx|
-          len = idx.next
-          if test[0,len] != str3[0,len]
-            assert_equal str3[idx - 5, 10], test[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal str3, test
-      test = book.shared_string 3
-      if test != str4
-        str4.size.times do |idx|
-          len = idx.next
-          if test[0,len] != str4[0,len]
-            assert_equal str4[idx - 5, 10], test[idx - 5, 10], "in position #{idx}"
-          end
-        end
-      end
-      assert_equal str4, test
+      assert_valid_sst(book, :is => [str1, str2, str3, str4, "formatted when empty"])
       assert_equal 2, book.worksheets.size
       sheet = book.worksheets.first
       assert_instance_of Spreadsheet::Excel::Worksheet, sheet
@@ -1271,11 +1164,242 @@ module Spreadsheet
       target = File.join @var, 'test_changes.xls'
       assert_nothing_raised do book.write target end
     end
+    def test_long_sst_record
+      path = File.join @data, 'test_long_sst_record.xls'
+      book = Spreadsheet.open path
+      sheet = book.worksheet(0)
+      expected_result = 'A1,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,419,420,421,422,423,424,425,426,427,428,429,430,431,432,433,434,435,436,437,438,439,440,441,442,443,444,445,446,447,448,449,450,451,452,453,454,455,456,457,458,459,460,461,462,463,464,465,466,467,468,469,470,471,472,473,474,475,476,477,478,479,480,481,482,483,484,485,486,487,488,489,490,491,492,493,494,495,496,497,498,499,500,501,502,503,504,505,506,507,508,509,510,511,512,513,514,515,516,517,518,519,520,521,522,523,524,525,526,527,528,529,530,531,532,533,534,535,536,537,538,539,540,541,542,543,544,545,546,547,548,549,550,551,552,553,554,555,556,557,558,559,560,561,562,563,564,565,566,567,568,569,570,571,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587,588,589,590,591,592,593,594,595,596,597,598,599,600,601,602,603,604,605,606,607,608,609,610,611,612,613,614,615,616,617,618,619,620,621,622,623,624,625,626,627,628,629,630,631,632,633,634,635,636,637,638,639,640,641,642,643,644,645,646,647,648,649,650,651,652,653,654,655,656,657,658,659,660,661,662,663,664,665,666,667,668,669,670,671,672,673,674,675,676,677,678,679,680,681,682,683,684,685,686,687,688,689,690,691,692,693,694,695,696,697,698,699,700,701,702,703,704,705,706,707,708,709,710,711,712,713,714,715,716,717,718,719,720,721,722,723,724,725,726,727,728,729,730,731,732,733,734,735,736,737,738,739,740,741,742,743,744,745,746,747,748,749,750,751,752,753,754,755,756,757,758,759,760,761,762,763,764,765,766,767,768,769,770,771,772,773,774,775,776,777,778,779,780,781,782,783,784,785,786,787,788,789,790,791,792,793,794,795,796,797,798,799,800,801,802,803,804,805,806,807,808,809,810,811,812,813,814,815,816,817,818,819,820,821,822,823,824,825,826,827,828,829,830,831,832,833,834,835,836,837,838,839,840,841,842,843,844,845,846,847,848,849,850,851,852,853,854,855,856,857,858,859,860,861,862,863,864,865,866,867,868,869,870,871,872,873,874,875,876,877,878,879,880,881,882,883,884,885,886,887,888,889,890,891,892,893,894,895,896,897,898,899,900,901,902,903,904,905,906,907,908,909,910,911,912,913,914,915,916,917,918,919,920,921,922,923,924,925,926,927,928,929,930,931,932,933,934,935,936,937,938,939,940,941,942,943,944,945,946,947,948,949,950,951,952,953,954,955,956,957,958,959,960,961,962,963,964,965,966,967,968,969,970,971,972,973,974,975,976,977,978,979,980,981,982,983,984,985,986,987,988,989,990,991,992,993,994,995,996,997,998'
+      assert_equal(expected_result, sheet[0,0])
+    end
+    def test_special_chars
+      book = Spreadsheet::Workbook.new
+      sheet = book.create_worksheet
+      (0..200).each { |i| sheet.row(i).push "ëçáéíóú" }
+      assert_nothing_raised do 
+        book.write StringIO.new("", "w+") 
+      end
+    end
+
+    def test_read_protected_sheet
+      path = File.join @data, "test_merged_and_protected.xls"
+      book = Spreadsheet.open path
+      sheet = book.worksheet(0)
+      sheet.ensure_rows_read # FIXME HACK
+      assert sheet.protected?, "Expected sheet to be protected"
+      assert_equal Spreadsheet::Excel::Password.password_hash('testing'), sheet.password_hash
+    end
+
+    def test_write_protected_sheet
+      path = File.join @var, 'test_protected.xls'
+      book = Spreadsheet::Workbook.new
+      sheet = book.create_worksheet
+      sheet.protect! 'secret'
+      assert_nothing_raised do
+        book.write path
+      end
+
+      read_back = Spreadsheet.open path
+      sheet = read_back.worksheet(0)
+      sheet.ensure_rows_read # FIXME HACK
+      assert sheet.protected?, "Expected sheet to be proteced"
+      assert_equal Spreadsheet::Excel::Password.password_hash('secret'), sheet.password_hash
+    end
+
+=begin
     def test_read_baltic
       path = File.join @data, 'test_baltic.xls'
       assert_nothing_raised do
         Spreadsheet.open path
       end
     end
+=end
+    def test_write_frozen_string
+      Spreadsheet.client_encoding = 'UTF-16LE'
+      book = Spreadsheet::Workbook.new
+      path = File.join @var, 'test_write_workbook.xls'
+      sheet1 = book.create_worksheet
+      str1 = "Frozen String.".freeze
+      sheet1[0,0] = str1
+      sheet1.row(0).push str1
+      assert_nothing_raised do 
+        book.write path
+      end
+    end
+    def test_read_merged_cells
+      path = File.join(@data, 'test_merged_cells.xls')
+      book = Spreadsheet.open(path)
+      assert_equal 8, book.biff_version
+      sheet = book.worksheet(0)
+      sheet[0,0] # trigger read_worksheet
+      assert_equal [[2, 4, 1, 1], [3, 3, 2, 3]], sheet.merged_cells
+    end
+    def test_read_borders
+      path = File.join @data, 'test_borders.xls'
+      book = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book
+      sheet = book.worksheet 0
+      format  = sheet.row(0).format 0
+      assert_equal :none, format.left
+      assert_equal :thin, format.top
+      assert_equal :medium, format.right
+      assert_equal :thick, format.bottom
+      assert_equal :builtin_black, format.left_color
+      assert_equal :red, format.top_color
+      assert_equal :green, format.right_color
+      assert_equal :yellow, format.bottom_color
+    end
+    def test_write_borders
+      book = Spreadsheet::Workbook.new
+      path = File.join @var, 'test_write_borders.xls'
+      sheet1 = book.create_worksheet
+      (sheet1.row(0).format 0).border = :hair
+      (sheet1.row(0).format 0).border_color = :brown
+      assert_nothing_raised do 
+        book.write path
+      end
+      book2 = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book2
+      sheet2 = book2.worksheet 0
+      format = sheet2.row(0).format 0
+      assert_equal :hair, format.left
+      assert_equal :brown, format.top_color
+    end
+
+    def test_adding_data_to_existing_file
+      path = File.join @data, 'test_adding_data_to_existing_file.xls'
+      book = Spreadsheet.open path
+      assert_equal(1, book.worksheet(0).rows.count)
+
+      book.worksheet(0).insert_row(1, [12, 23, 34, 45])
+      temp_file = Tempfile.new('temp')
+      book.write(temp_file.path)
+
+      temp_book = Spreadsheet.open temp_file.path
+      assert_equal(2, temp_book.worksheet(0).rows.count)
+
+      temp_file.unlink
+    end
+
+    def test_comment
+      path = File.join @data, 'test_comment.xls'
+      book = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book
+      sheet = book.worksheet 0
+      sheet.ensure_rows_read
+      #Now two commented fields in sheet
+      assert_equal(true, book.worksheet(0).notes.has_key?([0,18]))
+      assert_equal(true, book.worksheet(0).notes.has_key?([0,2]))
+      assert_equal(false, book.worksheet(0).notes.has_key?([0,3]))
+      assert_equal("Another Author:\n0: switch it off\n1: switch it on",
+                   book.worksheet(0).notes[[0,18]])
+      assert_equal("Some author:\nI have a register name",
+                   book.worksheet(0).notes[[0,2]])
+    end
+    def test_read_pagesetup
+      path = File.join @data, 'test_pagesetup.xls'
+      book = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book
+      sheet = book.worksheet(0)
+      assert_equal(:landscape, sheet.pagesetup[:orientation])
+      assert_equal(130, sheet.pagesetup[:adjust_to])
+    end
+
+    def test_write_pagesetup
+      book = Spreadsheet::Workbook.new
+      path = File.join @var, 'test_write_pagesetup.xls'
+      sheet1 = book.create_worksheet
+      sheet1.pagesetup[:orientation] = :landscape
+      sheet1.pagesetup[:adjust_to] = 93
+      assert_nothing_raised do
+        book.write path
+      end
+      book2 = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book2
+      sheet2 = book2.worksheet(0)
+      assert_equal(:landscape, sheet2.pagesetup[:orientation])
+      assert_equal(93, sheet2.pagesetup[:adjust_to])
+    end
+
+    def test_read_margins
+      path = File.join @data, 'test_margin.xls'
+      book = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book
+      sheet = book.worksheet(0)
+      assert_equal(2.0, sheet.margins[:left])
+    end
+
+    def test_write_margins
+      book = Spreadsheet::Workbook.new
+      path = File.join @var, 'test_write_margins.xls'
+      sheet1 = book.create_worksheet
+      sheet1.margins[:left] = 3
+      assert_nothing_raised do
+        book.write path
+      end
+      book2 = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book2
+      sheet2 = book2.worksheet(0)
+      assert_equal(3.0, sheet2.margins[:left])
+    end
+
+    def test_read_worksheet_visibility
+      path = File.join @data, 'test_worksheet_visibility.xls'
+      book = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book
+      assert_equal(:visible, book.worksheet(0).visibility)
+      assert_equal(:hidden, book.worksheet(1).visibility)
+    end
+
+    def test_write_worksheet_visibility
+      book = Spreadsheet::Workbook.new
+      path = File.join @var, 'test_write_worksheet_visibility.xls'
+      sheet1 = book.create_worksheet
+      sheet1.visibility = :hidden
+      sheet2 = book.create_worksheet
+      assert_nothing_raised do
+        book.write path
+      end
+      book2 = Spreadsheet.open path
+      assert_instance_of Excel::Workbook, book2
+      assert_equal(:hidden, book2.worksheet(0).visibility)
+      assert_equal(:visible, book2.worksheet(1).visibility)
+    end
+
+    def test_text_drawing
+      path = File.join @data, 'test_text_drawing.xls'
+      book = Spreadsheet.open path
+      assert_nothing_raised do
+        book.worksheet(0).row(0)
+      end
+    end
+    private
+
+    # Validates the workbook's SST
+    # Valid options:
+    #   :is       => [array]
+    #   :contains => [array]
+    #   :length   => num
+    def assert_valid_sst(workbook, opts = {})
+      assert workbook.is_a?(Spreadsheet::Excel::Workbook)
+      sst = workbook.sst
+      assert sst.is_a?(Array)
+      strings = sst.map do |entry|
+        assert entry.is_a?(Spreadsheet::Excel::SstEntry)
+        entry.content
+      end
+      sorted_strings = strings.sort
+      # Make sure there are no duplicates, the whole point of the SST:
+      assert_equal strings.uniq.sort, sorted_strings
+      if opts[:is]
+        assert_equal opts[:is].sort, sorted_strings
+      end
+      if opts[:contains]
+        assert_equal [], opts[:contains] - sorted_strings
+      end
+      if opts[:length]
+        assert_equal opts[:length], sorted_strings
+      end
+    end
+
   end
 end

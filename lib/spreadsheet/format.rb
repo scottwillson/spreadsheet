@@ -21,16 +21,32 @@ module Spreadsheet
     # #shrink::           Shrink the contents to fit the cell.
     # #text_justlast::    Force the last line of a cell to be justified. This
     #                     probably makes sense if horizontal_align = :justify
-    # #left::             Draw a border to the left of the cell.
-    # #right::            Draw a border to the right of the cell.
-    # #top::              Draw a border at the top of the cell.
-    # #bottom::           Draw a border at the bottom of the cell.
+    # #left::             Apply a border style to the left of the cell.
+    # #right::            Apply a border style to the right of the cell.
+    # #top::              Apply a border style at the top of the cell.
+    # #bottom::           Apply a border style at the bottom of the cell.
     # #rotation_stacked:: Characters in the cell are stacked on top of each
     #                     other. Excel will ignore other rotation values if
     #                     this is set.
     boolean :cross_down, :cross_up, :hidden, :locked,
-            :merge_range, :shrink, :text_justlast, :text_wrap, :left, :right,
-            :top, :bottom, :rotation_stacked
+            :merge_range, :shrink, :text_justlast, :text_wrap,
+						:rotation_stacked
+    ##
+    # Border line styles
+    # Valid values: :none, :thin, :medium, :dashed, :dotted, :thick, 
+		#               :double, :hair, :medium_dashed, :thin_dash_dotted,
+		#               :medium_dash_dotted, :thin_dash_dot_dotted,
+		#               :medium_dash_dot_dotted, :slanted_medium_dash_dotted
+    # Default:			:none
+		styles = [ :thin, :medium, :dashed, :dotted, :thick, 
+							 :double, :hair, :medium_dashed, :thin_dash_dotted,
+							 :medium_dash_dotted, :thin_dash_dot_dotted,
+							 :medium_dash_dot_dotted, :slanted_medium_dash_dotted ]
+		enum :left,		:none, *styles
+		enum :right,	:none, *styles
+		enum :top,		:none, *styles
+		enum :bottom,	:none, *styles
+
     ##
     # Color attributes
     colors  :bottom_color, :top_color, :left_color, :right_color,
@@ -77,25 +93,36 @@ module Spreadsheet
       @number_format    = client 'GENERAL', 'UTF-8'
       @rotation         = 0
       @pattern          = 0
-      @bottom_color     = :builtin_black
-      @top_color        = :builtin_black
-      @left_color       = :builtin_black
-      @right_color      = :builtin_black
-      @diagonal_color   = :builtin_black
+      @bottom_color     = :black
+      @top_color        = :black
+      @left_color       = :black
+      @right_color      = :black
+      @diagonal_color   = :black
       @pattern_fg_color = :border
       @pattern_bg_color = :pattern_bg
+      @regexes = {
+        :date         => Regexp.new(client("[YMD]", 'UTF-8')),
+        :date_or_time => Regexp.new(client("[hmsYMD]", 'UTF-8')),
+        :datetime     => Regexp.new(client("([YMD].*[HS])|([HS].*[YMD])", 'UTF-8')),
+        :time         => Regexp.new(client("[hms]", 'UTF-8')),
+        :number       => Regexp.new(client("[\#]", 'UTF-8'))
+      }
+
       # Temp code to prevent merged formats in non-merged cells.
-      @used_merge    = 0
-      opts.each do |key, val|
-        writer = "#{key}="
-        if @font.respond_to? writer
-          @font.send writer, val
-        else
-          self.send writer, val
-        end
-      end
+      @used_merge = 0
+      update_format(opts)
+
       yield self if block_given?
     end
+
+    def update_format(opts = {})
+      opts.each do |attribute, value|
+        writer = "#{attribute}="
+        @font.respond_to?(writer) ? @font.send(writer,value) : self.send(writer, value) 
+      end
+      self
+    end
+
     ##
     # Combined method for both horizontal and vertical alignment. Sets the
     # first valid value (e.g. Format#align = :justify only sets the horizontal
@@ -110,21 +137,21 @@ module Spreadsheet
       self.vertical_align = location rescue ArgumentError
     end
     ##
-    # Returns an Array containing the status of the four borders:
+    # Returns an Array containing the line styles of the four borders:
     # bottom, top, right, left
     def border
-      [bottom,top,right,left]
+      [bottom, top, right, left]
     end
     ##
-    # Activate or deactivate all four borders (left, right, top, bottom)
-    def border=(boolean)
-      [:bottom=, :top=, :right=, :left=].each do |writer| send writer, boolean end
+    # Set same line style on all four borders at once (left, right, top, bottom)
+    def border=(style)
+      [:bottom=, :top=, :right=, :left=].each do |writer| send writer, style end
     end
     ##
     # Returns an Array containing the colors of the four borders:
     # bottom, top, right, left
     def border_color
-      [@bottom_color,@top_color,@left_color,@right_color]
+      [@bottom_color,@top_color,@right_color,@left_color]
     end
     ##
     # Set all four border colors to _color_ (left, right, top, bottom)
@@ -156,22 +183,27 @@ module Spreadsheet
     ##
     # Is the cell formatted as a Date?
     def date?
-      !!Regexp.new(client("[YMD]", 'UTF-8')).match(@number_format.to_s)
+      !number? && !!@regexes[:date].match(@number_format.to_s)
     end
     ##
     # Is the cell formatted as a Date or Time?
     def date_or_time?
-      !!Regexp.new(client("[hmsYMD]", 'UTF-8')).match(@number_format.to_s)
+      !number? && !!@regexes[:date_or_time].match(@number_format.to_s)
     end
     ##
     # Is the cell formatted as a DateTime?
     def datetime?
-      !!Regexp.new(client("([YMD].*[HS])|([HS].*[YMD])", 'UTF-8')).match(@number_format.to_s)
+      !number? && !!@regexes[:datetime].match(@number_format.to_s)
     end
     ##
     # Is the cell formatted as a Time?
     def time?
-      !!Regexp.new(client("[hms]", 'UTF-8')).match(@number_format.to_s)
+      !number? && !!@regexes[:time].match(@number_format.to_s)
+    end
+    ##
+    # Is the cell formatted as a number?
+    def number?
+      !!@regexes[:number].match(@number_format.to_s)
     end
   end
 end

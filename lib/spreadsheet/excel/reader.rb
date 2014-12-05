@@ -2,6 +2,8 @@ require 'spreadsheet/encodings'
 require 'spreadsheet/font'
 require 'spreadsheet/formula'
 require 'spreadsheet/link'
+require 'spreadsheet/note'
+require 'spreadsheet/noteObject'
 require 'spreadsheet/excel/error'
 require 'spreadsheet/excel/internals'
 require 'spreadsheet/excel/sst_entry'
@@ -69,10 +71,16 @@ class Reader
     value
   end
   def encoding codepage_id
-    name = CODEPAGES.fetch(codepage_id) {
-      raise "Unknown Codepage 0x%04x" % codepage_id }
+    name = CODEPAGES.fetch(codepage_id) do
+      raise Spreadsheet::Errors::UnknownCodepage, "Unknown Codepage 0x%04x" % codepage_id
+    end
+
     if RUBY_VERSION >= '1.9'
-      Encoding.find name
+      begin
+        Encoding.find name
+      rescue ArgumentError
+        raise Spreadsheet::Errors::UnsupportedEncoding, "Unsupported encoding with name '#{name}'"
+      end
     else
       name
     end
@@ -113,6 +121,17 @@ class Reader
     end
   end
   def postread_worksheet worksheet
+     #We now have a lot of Note and NoteObjects, but they're not linked
+     #So link the noteObject(text) to the note (with author, position)
+     #TODO
+     @noteList.each do |i|
+        matching_obj = @noteObjList.select {|j| j.objID == i.objID}
+        if matching_obj.length > 1
+           puts "ERROR - more than one matching object ID!"
+        end
+        i.text = matching_obj.first.text
+        worksheet.add_note i.row, i.col, i.text
+     end
   end
   ##
   # The entry-point for reading Excel-documents. Reads the Biff-Version and
@@ -145,7 +164,7 @@ class Reader
     #      6     2  Build year
     #      8     4  File history flags
     #     12     4  Lowest Excel version that can read all records in this file
-    pos, @bof, len, work = get_next_chunk
+    _, @bof, _, work = get_next_chunk
     ## version and datatype are common to all Excel-Versions. Later versions
     #  have additional information such as build-id and -year (from BIFF5).
     #  These are ignored for the time being.
@@ -178,7 +197,7 @@ class Reader
     #      6  var.  Sheet name: BIFF5/BIFF7: Byte string,
     #                           8-bit string length (➜ 3.3)
     #                           BIFF8: Unicode string, 8-bit string length (➜ 3.4)
-    offset, visibility, type = work.unpack("VC2")
+    offset, visibility, _ = work.unpack("VC2")
     name = client read_string(work[6..-1]), @workbook.encoding
     if @boundsheets
       @boundsheets[0] += 1
@@ -190,7 +209,8 @@ class Reader
     @workbook.add_worksheet Worksheet.new(:name     => name,
                                           :ole      => @book,
                                           :offset   => offset,
-                                          :reader   => self)
+                                          :reader   => self,
+                                          :visibility => WORKSHEET_VISIBILITIES[visibility])
   end
   def read_codepage work, pos, len
     codepage, _ = work.unpack 'v'
@@ -442,15 +462,14 @@ class Reader
     # [var.]  2∙tl  (optional, see option flags) Character array of the text
     #               mark without “#” sign, no Unicode string header, always
     #               16-bit characters, zero-terminated
-    firstrow, lastrow, firstcol, lastcol, guid, opts = work.unpack 'v4H32x4V'
+    firstrow, lastrow, firstcol, lastcol, _, opts = work.unpack 'v4H32x4V'
     has_link = opts & 0x0001
-    absolute = opts & 0x0002
     desc     = opts & 0x0014
     textmark = opts & 0x0008
     target   = opts & 0x0080
     unc      = opts & 0x0100
     link = Link.new
-    url, description = nil
+    _, description = nil
     pos = 32
     if desc > 0
       description, pos = read_hlink_string work, pos
@@ -610,7 +629,7 @@ class Reader
     #      4  2∙nc  List of nc=lc-fc+1 16-bit indexes to XF records (➜ 6.115)
     # 4+2∙nc     2  Index to last column (lc)
     row, column, *xfs = work.unpack 'v*'
-    last_column = xfs.pop # unused
+    xfs.pop #=> last_column
     xfs.each_with_index do |xf, idx| set_cell worksheet, row, column + idx, xf end
   end
   def read_mulrk worksheet, addr, work
@@ -655,7 +674,7 @@ class Reader
       @pos = addr[:offset]
       found = false
       while tuple = get_next_chunk
-        pos, op, len, work = tuple
+        pos, op, _, work = tuple
         case op
         when :eof      # ●  EOF ➜ 6.36 - we should only get here if there is just
                        #                 one Row-Block
@@ -761,8 +780,28 @@ class Reader
     flags, _ = work.unpack 'v'
     worksheet.selected = flags & 0x0200 > 0
   end
+
+  def read_merged_cells worksheet, work, pos, len
+    # This record contains the addresses of merged cell ranges in the current sheet.
+    # Record MERGEDCELLS, BIFF8:
+    # Offset  Size  Contents
+    # 0	      var.	Cell range address list with merged ranges (➜ 2.5.15)
+    # If the record size exceeds the limit, it is not continued with a CONTINUE record,
+    # but another self-contained MERGEDCELLS record is started. The limit of 8224 bytes
+    # per record results in a maximum number of 1027 merged ranges.
+
+    worksheet.merged_cells.push(*read_range_address_list(work, len))
+    #
+    # A cell range address list consists of a field with the number of ranges and the list
+    # of the range addresses.
+    # Cell range address list, BIFF2-BIFF8:
+    # Offset  Size          Contents
+    # 0       2             Number of following cell range addresses (nm)
+    # 2	      6∙nm or 8∙nm  List of nm cell range addresses (➜ 2.5.14)
+    #
+  end
+
   def read_workbook
-    worksheet = nil
     previous_op = nil
     while tuple = get_next_chunk
       pos, op, len, work = tuple
@@ -811,6 +850,8 @@ class Reader
   def read_worksheet worksheet, offset
     @pos = offset
     @detected_rows = {}
+    @noteObjList = []
+    @noteList = []
     previous = nil
     while tuple = get_next_chunk
       pos, op, len, work = tuple
@@ -844,14 +885,76 @@ class Reader
         read_hlink worksheet, work, pos, len
       when :window2
         read_window2 worksheet, work, pos, len
+      when :mergedcells # ○○ MERGEDCELLS	➜ 5.67
+        read_merged_cells worksheet, work, pos, len
+      when :protect, :password
+        read_sheet_protection worksheet, op, work
+      when :note # a note references an :obj
+        read_note worksheet, work, pos, len
+      when :obj # it contains the author in the NTS structure
+        _ft, _cb, _ot, _objID = work.unpack('v4')
+        if _ot == 0x19
+          #puts "\nDEBUG: found Note Obj record"
+          @noteObject         = NoteObject.new
+          @noteObject.objID   = _objID
+        end
+        #p work
+      when :drawing # this can be followed by txo in case of a note
+        if previous == :obj
+          #puts "\nDEBUG: found MsDrawing record"
+          #p work
+        end
+      when :txo # this contains the length of the note text
+        if previous == :drawing
+          #puts "\nDEBUG: found TxO record"
+          #p work
+        end
+      when :continue # this contains the actual note text
+        if previous == :txo && @noteObject
+          #puts "\nDEBUG: found Continue record"
+          continueFmt = work.unpack('C')
+          if (continueFmt.first == 0)
+             #puts "Picking compressed charset"
+             #Skip to offset due to 'v5C' used above
+             _text = work.unpack('@1C*')
+             @noteObject.text = _text.pack('C*')
+          elsif (continueFmt.first == 1)
+             #puts "Picking uncompressed charset"
+             _text = work.unpack('@1S*')
+             @noteObject.text = _text.pack('U*')
+          end
+          @noteObjList << @noteObject
+        end
+      when :pagesetup
+        read_pagesetup(worksheet, work, pos, len)
+      when :leftmargin
+        worksheet.margins[:left] = work.unpack(binfmt(:margin))[0]
+      when :rightmargin
+        worksheet.margins[:right] = work.unpack(binfmt(:margin))[0]
+      when :topmargin
+        worksheet.margins[:top] = work.unpack(binfmt(:margin))[0]
+      when :bottommargin
+        worksheet.margins[:bottom] = work.unpack(binfmt(:margin))[0]
       else
         if ROW_BLOCK_OPS.include?(op)
           set_missing_row_address worksheet, work, pos, len
         end
       end
       previous = op
+      #previous = op unless op == :continue
     end
   end
+
+  def read_pagesetup(worksheet, work, pos, len)
+    worksheet.pagesetup.delete_if { true }
+    data = work.unpack(binfmt(:pagesetup))
+    worksheet.pagesetup[:orientation] = data[5] == 0 ? :landscape : :portrait
+    worksheet.pagesetup[:adjust_to] = data[1]
+
+    worksheet.pagesetup[:orig_data] = data
+    # TODO: add options acording to specification
+  end
+
   def read_guts worksheet, work, pos, len
     # Offset Size Contents
     #      0    2 Width of the area to display row outlines (left of the sheet), in pixel
@@ -1005,7 +1108,7 @@ class Reader
     #                13-7  0x3f80      Colour index (➜ 6.70)
     #                                  for pattern background
     fmt = Format.new
-    font_idx, numfmt, xf_type, xf_align, xf_rotation, xf_indent, xf_used_attr,
+    font_idx, numfmt, _, xf_align, xf_rotation, xf_indent, _,
       xf_borders, xf_brdcolors, xf_pattern = work.unpack binfmt(:xf)
     fmt.number_format = @formats[numfmt]
     ## this appears to be undocumented: the first 4 fonts seem to be accessed
@@ -1024,22 +1127,57 @@ class Reader
     fmt.indent_level = xf_indent & 0x0f
     fmt.shrink = xf_indent & 0x10 > 0
     fmt.text_direction = NOITCERID_TXET_FX[xf_indent & 0xc0]
-    fmt.left   = xf_borders & 0x0000000f > 0
-    fmt.right  = xf_borders & 0x000000f0 > 0
-    fmt.top    = xf_borders & 0x00000f00 > 0
-    fmt.bottom = xf_borders & 0x0000f000 > 0
-    fmt.left_color     = COLOR_CODES[xf_borders & 0x007f0000] || :border
-    fmt.right_color    = COLOR_CODES[xf_borders & 0x3f800000] || :border
+    fmt.left           = XF_BORDER_LINE_STYLES[xf_borders & 0x0000000f]
+    fmt.right          = XF_BORDER_LINE_STYLES[(xf_borders & 0x000000f0) >>  4]
+    fmt.top            = XF_BORDER_LINE_STYLES[(xf_borders & 0x00000f00) >>  8]
+    fmt.bottom         = XF_BORDER_LINE_STYLES[(xf_borders & 0x0000f000) >> 12]
+    fmt.left_color     = COLOR_CODES[(xf_borders & 0x007f0000) >> 16] || :black
+    fmt.right_color    = COLOR_CODES[(xf_borders & 0x3f800000) >> 23] || :black
     fmt.cross_down     = xf_borders & 0x40000000 > 0
     fmt.cross_up       = xf_borders & 0x80000000 > 0
-    fmt.top_color      = COLOR_CODES[xf_brdcolors & 0x0000007f] || :border
-    fmt.bottom_color   = COLOR_CODES[xf_brdcolors & 0x00003f80] || :border
-    fmt.diagonal_color = COLOR_CODES[xf_brdcolors & 0x001fc000] || :border
-    #fmt.diagonal_style = COLOR_CODES[xf_brdcolors & 0x01e00000]
-    fmt.pattern = xf_brdcolors & 0xfc000000
+		if xf_brdcolors
+    	fmt.top_color      = COLOR_CODES[xf_brdcolors & 0x0000007f] || :black
+    	fmt.bottom_color   = COLOR_CODES[(xf_brdcolors & 0x00003f80) >> 7] || :black
+    	fmt.diagonal_color = COLOR_CODES[(xf_brdcolors & 0x001fc000) >> 14] || :black
+    	#fmt.diagonal_style = COLOR_CODES[xf_brdcolors & 0x01e00000]
+    	fmt.pattern        = (xf_brdcolors & 0xfc000000) >> 26
+		end
     fmt.pattern_fg_color = COLOR_CODES[xf_pattern & 0x007f] || :border
-    fmt.pattern_bg_color = COLOR_CODES[xf_pattern & 0x3f80] || :pattern_bg
+    fmt.pattern_bg_color = COLOR_CODES[(xf_pattern & 0x3f80) >> 7] || :pattern_bg
     @workbook.add_format fmt
+  end
+  def read_note worksheet, work, pos, len
+    #puts "\nDEBUG: found a note record in read_worksheet\n"
+    row, col, _, _objID, _objAuthLen, _objAuthLenFmt = work.unpack('v5C')
+    if (_objAuthLen > 0)
+       if (_objAuthLenFmt == 0)
+          #puts "Picking compressed charset"
+          #Skip to offset due to 'v5C' used above
+          _objAuth = work.unpack('@11C' + (_objAuthLen-1).to_s + 'C')
+       elsif (_objAuthLenFmt == 1)
+          #puts "Picking uncompressed charset"
+          _objAuth = work.unpack('@11S' + (_objAuthLen-1).to_s + 'S')
+       end
+       _objAuth = _objAuth.pack('C*')
+    else
+       _objAuth = ""
+    end
+    @note = Note.new
+    @note.length = len
+    @note.row    = row
+    @note.col    = col
+    @note.author = _objAuth
+    @note.objID  = _objID
+    #Pop it on the list to be sorted in postread_worksheet
+    @noteList << @note
+  end
+  def read_sheet_protection worksheet, op, data
+    case op
+    when :protect
+      worksheet.protect! if data.unpack('v').first == 1
+    when :password
+      worksheet.password_hash = data.unpack('v').first
+    end
   end
   def set_cell worksheet, row, column, xf, value=nil
     cells = @current_row_block[[worksheet, row]] ||= Row.new(nil, row)
@@ -1050,7 +1188,7 @@ class Reader
     # Offset  Size  Contents
     #      0     2  Index of this row
     #      2     2  Index to this column
-    row_index, column_index = work.unpack 'v2'
+    row_index, _ = work.unpack 'v2'
     unless worksheet.offsets[row_index]
       @current_row_block_offset ||= [pos]
       data = {
@@ -1147,6 +1285,7 @@ class Reader
     %w{Book Workbook BOOK WORKBOOK book workbook}.any? do |name|
       @book = @ole.file.open(name) rescue false
     end
+    raise RuntimeError, "could not locate a workbook, possibly an empty file passed" unless @book
     @data = @book.read
     read_bof
     @workbook.ole = @book

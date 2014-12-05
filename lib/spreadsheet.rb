@@ -24,8 +24,11 @@
 #             8006 Zürich
 ###           Switzerland
 
+require 'spreadsheet/errors'
+
 require 'spreadsheet/excel/workbook'
 require 'spreadsheet/excel/reader'
+require 'spreadsheet/excel/rgb'
 
 # = Synopsis
 # The Spreadsheet Library is designed to read and write Spreadsheet Documents.
@@ -42,7 +45,7 @@ module Spreadsheet
 
   ##
   # The version of Spreadsheet you are using.
-  VERSION = '0.6.5.0'
+  VERSION = '1.0.0'
 
   ##
   # Default client Encoding. Change this value if your application uses a
@@ -57,12 +60,12 @@ module Spreadsheet
     ##
     # Parses a Spreadsheet Document and returns a Workbook object. At present,
     # only Excel-Documents can be read.
-    def open io_or_path, mode="rb+", &block
+    def open io_or_path, mode="rb+"
       if io_or_path.respond_to? :seek
         Excel::Workbook.open(io_or_path)
-      elsif block
+      elsif block_given?
         File.open(io_or_path, mode) do |fh|
-          block.call open(fh)
+          yield open(fh)
         end
       else
         open File.open(io_or_path, mode)

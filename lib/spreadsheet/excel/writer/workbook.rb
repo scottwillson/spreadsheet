@@ -64,26 +64,33 @@ class Workbook < Spreadsheet::Writer
     workbook.formats.each do |fmt|
       formats.push Format.new(self, workbook, fmt)
     end
+    @formats[workbook] = {
+      :writers => [],
+      :xf_indexes => {}
+    }
     formats.each_with_index do |fmt, idx|
-      fmt.xf_index = idx
+      @formats[workbook][:writers] << fmt
+      @formats[workbook][:xf_indexes][fmt.format] ||= idx
     end
-    @formats[workbook] = formats
   end
   def complete_sst_update? workbook
     stored = workbook.sst.collect do |entry| entry.content end
-    current = worksheets(workbook).inject [] do |memo, worksheet|
-      memo.concat worksheet.strings
+    num_total = 0
+    current = worksheets(workbook).inject(Hash.new(0)) do |memo, worksheet|
+      worksheet.strings.each do |k,v|
+        memo[k] += v
+        num_total += v
+      end
+      memo
     end
-    total = current.size
-    current.uniq!
     current.delete ''
-    if (stored - current).empty? && !stored.empty?
+    if !stored.empty? && stored.all?{|x| current.include?(x) }
       ## if all previously stored strings are still needed, we don't have to
       #  rewrite all cells because the sst-index of such string does not change.
-      additions = current - stored
-      [:partial_update, total, stored + additions]
+      additions = current.keys - stored
+      [:partial_update, num_total, stored + additions]
     else
-      [:complete_update, total, current]
+      [:complete_update, num_total, current.keys]
     end
   end
   def font_index workbook, font_key
@@ -96,6 +103,7 @@ class Workbook < Spreadsheet::Writer
     @number_formats[workbook][format] || 0
   end
   def sanitize_worksheets sheets
+    return sheets if sheets.empty?
     found_selected = false
     sheets.each do |sheet|
       found_selected ||= sheet.selected
@@ -139,11 +147,12 @@ class Workbook < Spreadsheet::Writer
       offset += worksheet.boundsheet_size
     end
     worksheets.each do |worksheet|
+      visibility = SEITILIBISIV_TEEHSKROW[worksheet.worksheet.visibility]
       data = [
         offset,   # Absolute stream position of the BOF record of the sheet
                   # represented by this record. This field is never encrypted
                   # in protected files.
-        0x00,     # Visibility: 0x00 = Visible
+        visibility,     # Visibility: 0x00 = Visible
                   #             0x01 = Hidden
                   #             0x02 = Strong hidden (see below)
         0x00,     # Sheet type: 0x00 = Worksheet
@@ -185,7 +194,7 @@ class Workbook < Spreadsheet::Writer
         reader.seek lastpos = 0
         workbook.offsets.select do |key, pair|
           workbook.changes.include? key
-        end.sort_by do |key, (pos, len)|
+        end.sort_by do |key, (pos, _)|
           pos
         end.each do |key, (pos, len)|
           data = reader.read(pos - lastpos)
@@ -264,7 +273,9 @@ class Workbook < Spreadsheet::Writer
     if RUBY_VERSION >= '1.9' && enc.is_a?(Encoding)
       enc = enc.name.upcase
     end
-    cp = SEGAPEDOC[enc] or raise "Invalid or Unknown Codepage '#{enc}'"
+    cp = SEGAPEDOC.fetch(enc) do
+      raise Spreadsheet::Errors::UnknownCodepage, "Invalid or Unknown Codepage '#{enc}'"
+    end
     write_op writer, 0x0042, [cp].pack('v')
   end
   def write_eof workbook, writer
@@ -348,8 +359,8 @@ class Workbook < Spreadsheet::Writer
   end
   def write_fonts workbook, writer
     fonts = @fonts[workbook] = {}
-    @formats[workbook].each do |format|
-      if(font = format.font) && !fonts.include?(font.key)
+    @formats[workbook][:writers].map{|format| format.font }.compact.uniq.each do |font|
+      unless fonts.include?(font.key)
         fonts.store font.key, fonts.size
         write_font workbook, writer, font
       end
@@ -426,6 +437,7 @@ class Workbook < Spreadsheet::Writer
     # ●● STYLE ➜ 5.103
     write_styles workbook, buffer1
     # ○  PALETTE ➜ 5.74
+    write_palette workbook, buffer1
     # ○  USESELFS ➜ 5.106
     buffer1.rewind
     # ●● BOUNDSHEET ➜ 5.95
@@ -481,12 +493,15 @@ class Workbook < Spreadsheet::Writer
     #      0     4  Total number of strings in the workbook (see below)
     #      4     4  Number of following strings (nm)
     #      8  var.  List of nm Unicode strings, 16-bit string length (➜ 3.4)
-    strings = worksheets(workbook).inject [] do |memo, worksheet|
-      memo.concat worksheet.strings
+    num_total = 0
+    strings = worksheets(workbook).inject(Hash.new(0)) do |memo, worksheet|
+      worksheet.strings.each do |k,v|
+        memo[k] += v
+        num_total += v
+      end
+      memo
     end
-    total = strings.size
-    strings.uniq!
-    _write_sst workbook, writer, offset, total, strings
+    _write_sst workbook, writer, offset, num_total, strings.keys
   end
   def _write_sst workbook, writer, offset, total, strings
     sst = {}
@@ -527,7 +542,7 @@ class Workbook < Spreadsheet::Writer
     ## if we're writing wide characters, we need to make sure we don't cut
     #  characters in half
     if wide > 0 && data.size > @recordsize_limit
-      remove = @recordsize_limit - data.size
+      remove = @recordsize_limit - bef
       remove -= remove % 2
       rest = data.slice!(remove..-1)
       write_op writer, op, data
@@ -576,6 +591,18 @@ class Workbook < Spreadsheet::Writer
               # are 0…6 for the outline levels 1…7.
     ]
     write_op writer, 0x0293, data.pack('vC2')
+  end
+  def write_palette workbook, writer
+    data = default_palette
+
+    workbook.palette.each do |idx, color|
+      idx = SEDOC_ROLOC[idx] - 8 if idx.kind_of? Symbol
+      raise "Undefined color index: #{idx}" unless data[idx]
+      data[idx] = color
+    end
+
+    writer.write [opcode(:palette), 2 + 4 * data.size, data.size].pack('v3')
+    writer.write data.collect { |c| c.push(0).pack('C4') }.join
   end
   def write_tabid workbook, writer
     write_op writer, 0x013d, [1].pack('v')
@@ -634,17 +661,75 @@ class Workbook < Spreadsheet::Writer
     # the XF record with the fixed index 15 (0-based). By default, it uses the
     # worksheet/workbook default cell style, described by the very first XF
     # record (index 0).
-    @formats[workbook].each do |fmt| fmt.write_xf writer end
+    @formats[workbook][:writers].each do |fmt| fmt.write_xf writer end
   end
   def sst_index worksheet, str
     @sst[worksheet][str]
   end
   def xf_index workbook, format
-    if fmt = @formats[workbook].find do |fm| fm.format == format end
-      fmt.xf_index
-    else
-      0
-    end
+    @formats[workbook][:xf_indexes][format] || 0
+  end
+  ##
+  # Returns Excel 97+ default colour palette.
+  def default_palette
+    [
+      [0x00, 0x00, 0x00],
+      [0xff, 0xff, 0xff],
+      [0xff, 0x00, 0x00],
+      [0x00, 0xff, 0x00],
+      [0x00, 0x00, 0xff],
+      [0xff, 0xff, 0x00],
+      [0xff, 0x00, 0xff],
+      [0x00, 0xff, 0xff],
+      [0x80, 0x00, 0x00],
+      [0x00, 0x80, 0x00],
+      [0x00, 0x00, 0x80],
+      [0x80, 0x80, 0x00],
+      [0x80, 0x00, 0x80],
+      [0x00, 0x80, 0x80],
+      [0xc0, 0xc0, 0xc0],
+      [0x80, 0x80, 0x80],
+      [0x99, 0x99, 0xff],
+      [0x99, 0x33, 0x66],
+      [0xff, 0xff, 0xcc],
+      [0xcc, 0xff, 0xff],
+      [0x66, 0x00, 0x66],
+      [0xff, 0x80, 0x80],
+      [0x00, 0x66, 0xcc],
+      [0xcc, 0xcc, 0xff],
+      [0x00, 0x00, 0x80],
+      [0xff, 0x00, 0xff],
+      [0xff, 0xff, 0x00],
+      [0x00, 0xff, 0xff],
+      [0x80, 0x00, 0x80],
+      [0x80, 0x00, 0x00],
+      [0x00, 0x80, 0x80],
+      [0x00, 0x00, 0xff],
+      [0x00, 0xcc, 0xff],
+      [0xcc, 0xff, 0xff],
+      [0xcc, 0xff, 0xcc],
+      [0xff, 0xff, 0x99],
+      [0x99, 0xcc, 0xff],
+      [0xff, 0x99, 0xcc],
+      [0xcc, 0x99, 0xff],
+      [0xff, 0xcc, 0x99],
+      [0x33, 0x66, 0xff],
+      [0x33, 0xcc, 0xcc],
+      [0x99, 0xcc, 0x00],
+      [0xff, 0xcc, 0x00],
+      [0xff, 0x99, 0x00],
+      [0xff, 0x66, 0x00],
+      [0x66, 0x66, 0x99],
+      [0x96, 0x96, 0x96],
+      [0x00, 0x33, 0x66],
+      [0x33, 0x99, 0x66],
+      [0x00, 0x33, 0x00],
+      [0x33, 0x33, 0x00],
+      [0x99, 0x33, 0x00],
+      [0x99, 0x33, 0x66],
+      [0x33, 0x33, 0x99],
+      [0x33, 0x33, 0x33]
+    ]
   end
 end
     end

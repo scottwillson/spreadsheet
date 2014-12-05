@@ -21,9 +21,9 @@ class Row < Spreadsheet::Row
   def datetime idx
     _datetime at(idx)
   end
-  def each &block
+  def each
     size.times do |idx|
-      block.call self[idx]
+      yield self[idx]
     end
   end
   ##
@@ -43,6 +43,12 @@ class Row < Spreadsheet::Row
       enriched_data idx, at(idx)
     end
   end
+  ##
+  # Returns data as an array. If a cell is formatted as a Date or DateTime, the
+  # decoded Date or DateTime value is returned.
+  def to_a
+    self[0...length]
+  end
   private
   def _date data # :nodoc:
     return data if data.is_a?(Date)
@@ -53,10 +59,7 @@ class Row < Spreadsheet::Row
     return data if data.is_a?(DateTime)
     base = @worksheet.date_base
     date = base + data.to_f
-    if LEAP_ERROR > base
-      date -= 1
-    end
-    hour = (data % 1) * 24
+    hour = (data.to_f % 1) * 24
     min  = (hour % 1) * 60
     sec  = ((min % 1) * 60).round
     min = min.floor
@@ -73,9 +76,12 @@ class Row < Spreadsheet::Row
       hour = 0
       date += 1
     end
+    if LEAP_ERROR > base
+      date -= 1
+    end
     DateTime.new(date.year, date.month, date.day, hour, min, sec)
   end
-  
+
   def _time data, microseconds # :nodoc:
     return data if data.is_a?(Time)
     date = _date data
@@ -115,7 +121,7 @@ class Row < Spreadsheet::Row
       raise ArgumentError, "#{e.message}. Could not create Time from: #{year}, #{date.month}, #{date.day}, #{hour}, #{min}, #{sec}, #{usec}"
     end
   end
-  
+
   def enriched_data idx, data # :nodoc:
     res = nil
     if link = @worksheet.links[[@idx, idx]]

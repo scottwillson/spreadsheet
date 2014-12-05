@@ -12,15 +12,17 @@ module Spreadsheet
   #                   Row#default_format or Worksheet#default_format.
   class Workbook
     include Spreadsheet::Encodings
-    attr_reader :io, :worksheets, :formats, :fonts
+    attr_reader :io, :worksheets, :formats, :fonts, :palette
     attr_accessor :active_worksheet, :encoding, :default_format, :version
     def initialize io = nil, opts={:default_format => Format.new}
       @worksheets = []
       @io = io
       @fonts = []
+      @palette = {}
       @formats = []
+      @formats_set = {}
       if @default_format = opts[:default_format]
-        @formats.push @default_format
+        add_format @default_format
       end
     end
     ##
@@ -34,7 +36,10 @@ module Spreadsheet
     # Add a Format to the Workbook. If you use Row#set_format, you should not
     # need to use this Method.
     def add_format format
-      @formats.push(format) if format && !@formats.include?(format)
+      if format && !@formats_set[format]
+        @formats_set[format] = true
+        @formats.push(format)
+      end
       format
     end
     ##
@@ -43,6 +48,18 @@ module Spreadsheet
       worksheet.workbook = self
       @worksheets.push worksheet
       worksheet
+    end
+    ##
+    # Delete a Worksheet from Workbook by it's index
+    def delete_worksheet worksheet_index
+      @worksheets.delete_at worksheet_index
+    end
+    ##
+    # Change the RGB components of the elements in the colour palette.
+    def set_custom_color idx, red, green, blue
+      raise 'Invalid format' if [red, green, blue].find { |c| ! (0..255).include?(c) }
+
+      @palette[idx] = [red, green, blue]
     end
     ##
     # Create a new Worksheet in this Workbook.
@@ -54,6 +71,12 @@ module Spreadsheet
     def create_worksheet opts = {}
       opts[:name] ||= client("Worksheet#{@worksheets.size.next}", 'UTF-8')
       add_worksheet Worksheet.new(opts)
+    end
+    ##
+    # Returns the count of total worksheets present.
+    # Takes no arguments. Just returns the length of @worksheets array.
+    def sheet_count
+    @worksheets.length
     end
     ##
     # The Font at _idx_

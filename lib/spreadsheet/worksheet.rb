@@ -2,6 +2,7 @@ require 'date'
 require 'spreadsheet/column'
 require 'spreadsheet/encodings'
 require 'spreadsheet/row'
+require 'spreadsheet/excel/password_hash'
 
 module Spreadsheet
   ##
@@ -25,18 +26,35 @@ module Spreadsheet
   #                   default.
   class Worksheet
     include Spreadsheet::Encodings
+    include Spreadsheet::Datatypes
     include Enumerable
-    attr_accessor :name, :selected, :workbook
-    attr_reader :rows, :columns
+    attr_accessor :name, :selected, :workbook, :password_hash
+    attr_reader :rows, :columns, :merged_cells, :margins, :pagesetup
+    enum :visibility, :visible, :hidden, :strong_hidden
     def initialize opts={}
       @default_format = nil
       @selected = opts[:selected]
       @dimensions = [0,0,0,0]
+      @pagesetup = {
+        :orig_data => [9, 100, 1, 1, 1, 0, 300, 300, 0.5, 0.5, 1],
+        :orientation => :portrait,
+        :adjust_to => 100
+      }
+      @margins = {
+        :top => 1,
+        :left => 0.75,
+        :right => 0.75,
+        :bottom => 1
+      }
       @name = opts[:name] || 'Worksheet'
       @workbook = opts[:workbook]
       @rows = []
       @columns = []
       @links = {}
+      @merged_cells = []
+      @protected = false
+      @password_hash = 0
+      @visibility = opts[:visibility]
     end
     def active # :nodoc:
       warn "Worksheet#active is deprecated. Please use Worksheet#selected instead."
@@ -92,6 +110,23 @@ module Spreadsheet
       format
     end
     ##
+    # Is the worksheet protected?
+    def protected?
+      @protected
+    end
+    ##
+    # Set worklist protection
+    def protect! password = ''
+      @protected = true
+      password = password.to_s
+      if password.size == 0
+        @password_hash = 0
+      else
+        @password_hash = Excel::Password.password_hash password
+      end
+    end
+
+    ##
     # Dimensions:: [ first used row, first unused row,
     #              first used column, first unused column ]
     #              ( First used means that all rows or columns before that are
@@ -107,9 +142,9 @@ module Spreadsheet
     # If the argument skip is given, #each iterates from that row until but
     # omitting the first unused Row, effectively skipping the first _skip_ Rows
     # from the top of the Worksheet.
-    def each skip=dimensions[0], &block
+    def each skip=dimensions[0]
       skip.upto(dimensions[1] - 1) do |idx|
-        block.call row(idx)
+        yield row(idx)
       end
     end
     def encoding # :nodoc:
@@ -146,22 +181,30 @@ module Spreadsheet
     # - 'DD.MM.YYYY' for Date
     # - 'DD.MM.YYYY hh:mm:ss' for DateTime and Time
     def format_dates! format=nil
+      new_formats = {}
+      fmt_str_time = client('DD.MM.YYYY hh:mm:ss', 'UTF-8')
+      fmt_str_date = client('DD.MM.YYYY', 'UTF-8')
       each do |row|
         row.each_with_index do |value, idx|
           unless row.formats[idx] || row.format(idx).date_or_time?
             numfmt = case value
                      when DateTime, Time
-                       format || client('DD.MM.YYYY hh:mm:ss', 'UTF-8')
+                       format || fmt_str_time
                      when Date
-                       format || client('DD.MM.YYYY', 'UTF-8')
+                       format || fmt_str_date
                      end
             case numfmt
             when Format
               row.set_format idx, numfmt
             when String
-              fmt = row.format(idx).dup
-              fmt.number_format = numfmt
-              row.set_format idx, fmt
+              existing_format = row.format(idx)
+              new_formats[existing_format] ||= {}
+              new_format = new_formats[existing_format][numfmt]
+              if !new_format
+                new_format = new_formats[existing_format][numfmt] = existing_format.dup
+                new_format.number_format = numfmt
+              end
+              row.set_format idx, new_format
             end
           end
         end
@@ -250,6 +293,12 @@ module Spreadsheet
     # See also Row#[]=.
     def []= row, column, value
       row(row)[column] = value
+    end
+    ##
+    # Merges multiple cells into one.
+    def merge_cells start_row, start_col, end_row, end_col
+      # FIXME enlarge or dup check
+      @merged_cells.push [start_row, end_row, start_col, end_col]
     end
     private
     def index_of_first ary # :nodoc:
